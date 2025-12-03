@@ -1,55 +1,127 @@
 # Guide de modification de QRCodeQuizz
 
-Ce document complète `docs/architecture.md` et répond à la question « où dois-je intervenir pour modifier telle ou telle partie du flux QR → sondage → chiffrement ? ». Il se lit comme une carte des fichiers principaux, avec des scénarios de modification concrets.
+Ce document complète `docs/architecture.md` et répond précisément à « quel fichier modifier pour faire évoluer telle étape du parcours QR → sondage → chiffrement ? ». Chaque section cite les classes/méthodes à toucher et l’ordre exact des actions.
 
 ## Carte rapide de l’arborescence
 
 | Zone | Pour modifier… | Chemins clés |
 | --- | --- | --- |
 | Entrée / thème | Point de départ Flutter, Material 3, navigation vers le flow | `lib/main.dart`, `lib/app.dart` |
-| Parcours utilisateur | Logique du scanner, formulaire dynamique, capture photo, états | `lib/features/survey/pages/survey_flow_page.dart` |
-| Widgets UI | Scanner (`MobileScanner`), formulaire + cartes photo/chiffrement, composants de question | `lib/features/survey/widgets/**` |
-| Modèles | Types de questions, schémas de sondage, payloads chiffrés, échantillons mockés | `lib/models/**/*.dart` |
-| Services | Auth token, fetch sondage, soumission HTTPS, chiffrement AES‑GCM | `lib/services/pipeline_services.dart`, `lib/services/encryption_service.dart` |
-| Documentation | Vue d’ensemble technique | `docs/architecture.md` |
+| Parcours utilisateur | État global, permissions, appels services, enchaînement des vues | `lib/features/survey/pages/survey_flow_page.dart` |
+| Widgets UI | Scanner (`MobileScanner`), formulaire dynamique, carte photo, résumé de chiffrement | `lib/features/survey/widgets/**` |
+| Modèles de données | Questions, sondages, réponses, payload chiffré, mocks | `lib/models/**/*.dart` |
+| Services | Auth/token, fetch sondage, envoi, chiffrement AES‑GCM | `lib/services/pipeline_services.dart`, `lib/services/encryption_service.dart` |
+| Docs | Vue d’ensemble, présent guide | `docs/architecture.md`, `docs/guide_modifications.md` |
 
-## Modifier l’expérience utilisateur
+## Flux complet et points d’entrée
 
-- **Thème ou écran d’accueil** – Ajustez `MaterialApp` dans `lib/app.dart:8` (titre, thèmes, routes) ou remplacez `SurveyFlowPage` par votre propre page si vous introduisez un onboarding.
-- **Scanner & saisie manuelle** – `lib/features/survey/widgets/survey_scanner_view.dart:8` contient la configuration `MobileScanner`. Pour limiter/étendre les formats de code, passez par le `MobileScannerController` instancié dans `survey_flow_page.dart:22`. Le bouton « Saisir manuellement » déclenche `_promptManualSurvey`; modifiez ce dialog dans `survey_flow_page.dart:120` pour renforcer la validation.
-- **États & transitions** – Toute évolution du flux (autorisation caméra, appels réseau, messages d’erreur) se fait dans `SurveyFlowPage` (`_initialize`, `_fetchSurvey`, `_capturePhoto`, `_submitForm`). Ajoutez vos propres variables d’état ou métriques dans `_SurveyFlowPageState`.
-- **Formulaire dynamique** – `lib/features/survey/widgets/survey_form_view.dart:15` alimente la `ListView`. Pour changer l’ordre des blocs, insérez ou réorganisez les widgets ici (par exemple ajouter une section « Consentement » avant la photo).
-- **Photo & récapitulatif** – `PhotoCaptureCard` (`lib/features/survey/widgets/photo_capture_card.dart`) s’occupe de l’UX de prise de photo. Personnalisez le message, les boutons ou remplacez `image_picker` par un autre plugin via la callback `onCapturePhoto` implémentée dans `SurveyFlowPage._capturePhoto`.
-- **Résumés de chiffrement** – `EncryptionSummaryCard` (`lib/features/survey/widgets/encryption_summary_card.dart`) affiche les aperçus base64. Ajoutez-y des boutons « Copier » ou un toggle pour masquer/afficher les clés.
+| Étape | Ce qui se passe | Fichiers/méthodes à modifier |
+| --- | --- | --- |
+| 0. Boot | `main()` appelle `SurveyApp` (Material 3, thème) | `lib/main.dart`, `lib/app.dart:8-20` |
+| 1. Auth + permissions | `_initialize` demande la caméra (`_ensureCameraPermission`) puis `AuthRepository.login` et stocke `_authToken` | `survey_flow_page.dart:47-86`, `pipeline_services.dart:13-42` |
+| 2. Scan / saisie ID | `SurveyScannerView` écoute `MobileScanner` et renvoie `rawValue` à `_handleSurveyDetected` | `survey_scanner_view.dart:8-60`, `survey_flow_page.dart:100-116` |
+| 3. Fetch sondage | `_fetchSurvey` appelle `SurveyRepository.fetchSurvey` puis instancie les `TextEditingController` | `survey_flow_page.dart:118-167`, `pipeline_services.dart:44-82` |
+| 4. Formulaire dynamique | `SurveyFormView` rend chaque `SurveyQuestion` via `SurveyQuestionField` | `survey_form_view.dart:22-82`, `survey_question_field.dart:15-70` |
+| 5. Capture photo | `_capturePhoto` vérifie la permission caméra, ouvre `image_picker`, stocke `_photoBytes` | `survey_flow_page.dart:169-215`, `photo_capture_card.dart:10-70` |
+| 6. Chiffrement + soumission | `_submitForm` assemble `SurveyAnswer`, appelle `EncryptionService.encryptSubmission`, puis `SubmissionRepository.submit` | `survey_flow_page.dart:217-296`, `encryption_service.dart:11-74`, `pipeline_services.dart:84-134` |
+| 7. Reset | `_resetSurvey` vide `controllers`, relance le scanner | `survey_flow_page.dart:298-312` |
 
-## Ajouter de nouveaux types de questions
+Utilisez cette table comme check-list : quand vous modifiez une étape, assurez-vous de couvrir à la fois la partie UI (widgets) et la partie service/modèle correspondante.
 
-1. Déclarez les nouveaux types dans `lib/models/question_type.dart`.
-2. Étendez le parsing dans `SurveyQuestion.fromJson` (`lib/models/survey_question.dart:16`).
-3. Rendez `SurveyQuestionField` (`lib/features/survey/widgets/questions/survey_question_field.dart`) conscient de ce type en branchant le widget voulu (ex. slider, date picker). Faites passer la validation via `FormField`.
-4. Si vos mocks doivent exposer ce type, ajustez `lib/models/survey_samples.dart`.
+## Scénarios de modification précis
 
-## Brancher un backend réel
+### 1. Personnaliser l’expérience utilisateur
 
-- **Repositories** – Passez `simulateFetch = false` et `simulateNetwork = false` lors de l’instanciation de `SurveyRepository`/`SubmissionRepository` dans `survey_flow_page.dart:30`. Fournissez `baseUrl` (ex: `SurveyRepository(baseUrl: dotenv.env['API_URL'])`).
-- **AuthRepository** – `lib/services/pipeline_services.dart:13` stocke simplement un token généré localement. Remplacez `login` par votre implémentation OAuth/REST et assurez-vous d’écrire dans `flutter_secure_storage` pour conserver la compatibilité UI.
-- **Gestion des erreurs** – Les exceptions `SurveyException` et `SubmissionException` sont propagées jusqu’à `_statusMessage`. Pour gérer des codes spécifiques (ex: 401 → re-login), détectez-les dans `_fetchSurvey` / `_submitForm`.
+1. **Thème global / navigation**
+   - Ouvrez `lib/app.dart`.
+   - Ajustez `MaterialApp` (`title`, `theme`, `darkTheme`, `routes`, etc.).
+   - Pour intercaler un onboarding avant le flow, remplacez `home: const SurveyFlowPage()` par votre widget et naviguez ensuite vers `SurveyFlowPage`.
+2. **Scanner & saisie manuelle**
+   - Le `MobileScannerController` est créé dans `SurveyFlowPage` (`_scannerController` ligne 20). Changez `formats`, activez `torchEnabled`, etc.
+   - L’UI du scanner est dans `lib/features/survey/widgets/survey_scanner_view.dart`. Pour ajouter une aide visuelle (overlay, instructions), modifiez le `Card` central ou ajoutez des boutons sous `OutlinedButton.icon`.
+   - La saisie manuelle se trouve dans `_promptManualSurvey` (`survey_flow_page.dart:133`). Ajoutez validation, hints ou un bouton scan test ici.
+3. **Messages d’état / transitions**
+   - `_statusMessage`, `_isFetchingSurvey` et `_isSubmitting` pilotent les bannières et boutons (`survey_flow_page.dart`). Injectez vos propres flags si vous devez afficher une bannière success/erreur plus riche.
+4. **Formulaire dynamique**
+   - Les blocs sont montés dans `SurveyFormView`. Réordonnez ou insérez des sections (ex: `ConsentCard`) directement dans la `ListView`.
+   - Pour changer les contrôles d’une question, éditez `SurveyQuestionField` : vous pouvez remplacer la logique `QuestionType.singleChoice` par un `DropdownButtonFormField` ou un widget custom.
+5. **Photo & résumé**
+   - `PhotoCaptureCard` affiche la preview : changez la taille, ajoutez un bouton « Supprimer photo ».
+   - `EncryptionSummaryCard` tronque les base64 via `_preview`. Ajustez la longueur, ajoutez un bouton `IconButton` pour copier dans le presse-papiers ou masquer les clés derrière un `ExpansionTile`.
 
-## Adapter chiffrement et stockage
+### 2. Ajouter un nouveau type de question (ex : date)
 
-- **Algorithme / taille de clé** – Modifiez `EncryptionService` (`lib/services/encryption_service.dart`). Vous pouvez injecter un `AesGcm` différent ou créer une nouvelle classe (ex: `ChaCha20Poly1305`). Toute transformation supplémentaire (signature, split key) doit être ajoutée dans `encryptSubmission`.
-- **Payload envoyé** – `lib/models/encrypted_submission.dart` définit la sérialisation. Ajoutez vos champs (UUID, géolocalisation, etc.) puis mettez à jour la construction de `EncryptedSubmission` dans `_submitForm`.
-- **Photo optionnelle** – `_capturePhoto` (dans `SurveyFlowPage`) lit les bytes puis les passe à `EncryptionService`. Si vous souhaitez sauvegarder temporairement la photo sur disque, faites-le ici mais pensez à l’effacer après chiffrement.
+1. **Déclarer le type** – Ajoutez `date` à l’enum `QuestionType` (`lib/models/question_type.dart`) et mettez à jour `parseQuestionType`.
+2. **Parsing JSON** – Aucune modif nécessaire dans `SurveyQuestion.fromJson` tant que la clé `type` existe, mais vous pouvez valider les `options` spécifiques ici.
+3. **UI / validation** – Dans `SurveyQuestionField.build`, ajoutez un nouveau `case QuestionType.date` qui retourne un `TextFormField` en lecture seule + `showDatePicker` via `GestureDetector`, ou un widget dédié.
+4. **Réponse sérialisée** – Aucun changement côté `SurveyAnswer` (stocke une `String`). Transformez la date au format voulue (`ISO8601`) avant `SurveyAnswer`.
+5. **Mocks** – Ajoutez un exemple dans `lib/models/survey_samples.dart` pour vérifier le rendu hors ligne.
+6. **Tests** – Montez `SurveyFormView` dans un test widget et interagissez avec votre nouveau type pour valider `validator` + `onChanged`.
 
-## Tests et vérifications
+### 3. Brancher un backend réel
 
-- `flutter analyze` et `flutter test` (voir `README.md`) doivent tourner sans erreurs avant de pousser une modification structurante.
-- Pour valider un nouveau type de question, ajoutez un test widget dans `test/widget_test.dart` ou créez un fichier dédié (`test/features/...`) qui monte `SurveyFormView` avec un `Survey` synthétique.
-- Testez sur un device réel dès que vous modifiez les permissions/caméra : les simulateurs traitent différemment `permission_handler` et `image_picker`.
+1. **Configurer les repositories**
+   ```dart
+   final SurveyRepository _surveyRepository = SurveyRepository(
+     baseUrl: const String.fromEnvironment('API_BASE_URL'),
+     simulateFetch: false,
+   );
+   final SubmissionRepository _submissionRepository = SubmissionRepository(
+     baseUrl: const String.fromEnvironment('API_BASE_URL'),
+     simulateNetwork: false,
+   );
+   ```
+   Placez ce code dans `SurveyFlowPage` (déclarations lignes 23‑29). Vous pouvez aussi injecter les instances via un `InheritedWidget` si plusieurs écrans les utilisent.
+2. **Auth réelle**
+   - Remplacez `AuthRepository.login` par votre implémentation (OAuth2, Basic, etc.) dans `lib/services/pipeline_services.dart`.
+   - Continuez d’écrire le token obtenu dans `flutter_secure_storage` (`_storage.write`) pour que `SurveyFlowPage` n’ait rien à changer.
+3. **Erreurs HTTP**
+   - `SurveyRepository.fetchSurvey` et `SubmissionRepository.submit` lèvent `SurveyException` / `SubmissionException`. Ajoutez une inspection des `response.statusCode` pour retourner des messages détaillés (`switch` 400/401/500) et déclencher un `logout()` si nécessaire.
+4. **Logs et monitoring**
+   - Injectez un `http.Client` personnalisé (ex: avec interceptors) via les constructeurs `SurveyRepository(client: myClient, ...)`.
+
+### 4. Adapter chiffrement, payloads et stockage
+
+1. **Changer d’algorithme**
+   - Modifiez `EncryptionService` (`lib/services/encryption_service.dart`). Par exemple :
+     ```dart
+     class EncryptionService {
+       EncryptionService() : _algorithm = ChaCha20.poly1305Aead();
+     }
+     ```
+   - Si vous devez renvoyer l’`authTag`, étendez `EncryptedField` (`lib/models/encrypted_field.dart`) pour inclure un champ `tag`.
+2. **Ajouter des métadonnées**
+   - `EncryptedSubmission` (`lib/models/encrypted_submission.dart`) contient `surveyId`, `answers`, `photo`, `encryptionKey`, `authToken`.
+   - Ajoutez vos propriétés (ex: `deviceId`, `gps`) + mise à jour de `toJson`.
+   - Dans `_submitForm`, renseignez ces champs avant l’appel à `_submissionRepository.submit`.
+3. **Persister la photo temporairement**
+   - Par défaut, `_capturePhoto` laisse tout en mémoire. Si vous devez sauvegarder un fichier :
+     - Utilisez `XFile.saveTo`.
+     - Passez le chemin au backend ou relisez les bytes avant chiffrement.
+     - Supprimez le fichier une fois `encryptSubmission` terminé pour éviter les fuites disque.
+
+### 5. Modèles, mocks et localisation
+
+- **Modifier les textes** – Les libellés par défaut viennent du backend. Pour tester hors ligne, ajustez `SurveySamples._sampleData`.
+- **Localiser l’UI** – Centralisez les chaînes dans `lib/l10n` (à créer), et remplacez les `Text('...')` existants (scanner, boutons, messages) par `AppLocalizations`.
+- **Structure du sondage** – `lib/models/survey.dart` expose `toJson`; utilisez-le si vous devez poster un sondage depuis un outil interne ou valider la compatibilité avec un backend externe.
+
+### 6. Tests et vérifications
+
+1. **Lint & format** – `flutter analyze` (analyse statique) et `dart format .` si nécessaire.
+2. **Tests widget** – `test/widget_test.dart` contient un squelette. Dupliquez-le pour couvrir :
+   - rendu d’une question obligatoire,
+   - affichage des erreurs `SurveyException`,
+   - présence du résumé de chiffrement lorsqu’un `EncryptionBundle` est injecté.
+3. **Tests manuels**
+   - Simulateur : testez la saisie manuelle (caméra indisponible).
+   - Device réel : testez `permission_handler` et `image_picker` (caméra frontale).
+   - Backend réel : tracez les requêtes `GET /survey/{id}` et `POST /answers` avec un proxy (ex: `mitmproxy`) pour vérifier les headers `Authorization`.
 
 ## Ressources utiles
 
-- `docs/architecture.md` pour comprendre le storytelling complet de la fonctionnalité.
-- Issues / TODOs : cherchez `TODO` via `rg TODO lib` si vous souhaitez trouver des points d’accroche rapides.
+- `docs/architecture.md` : narrative complète du pipeline.
+- `README.md` : commandes de build et déploiement.
+- `rg TODO lib` : recherche rapide des TODO en attente.
 
-Avec cette carte en main vous devriez savoir immédiatement quel fichier modifier selon que vous touchez à l’UI, aux modèles de sondage, aux services réseau ou au chiffrement.
+Avec ce guide, vous pouvez pointer précisément la classe/le fichier à modifier pour chaque évolution et vérifier que l’intégralité du pipeline reste cohérente (UI → services → chiffrement → envoi).
