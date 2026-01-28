@@ -41,6 +41,16 @@ class _AuthGateState extends State<AuthGate> {
     });
   }
 
+  Future<void> _handleRequireLogin() async {
+    await _authRepository.logout();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _session = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -56,6 +66,9 @@ class _AuthGateState extends State<AuthGate> {
       );
     }
 
-    return SurveyFlowPage(session: _session!);
+    return SurveyFlowPage(
+      session: _session!,
+      onRequireLogin: _handleRequireLogin,
+    );
   }
 }

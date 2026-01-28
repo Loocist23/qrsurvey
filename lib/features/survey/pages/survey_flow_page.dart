@@ -14,9 +14,14 @@ import '../widgets/survey_form_view.dart';
 import '../widgets/survey_scanner_view.dart';
 
 class SurveyFlowPage extends StatefulWidget {
-  const SurveyFlowPage({super.key, required this.session});
+  const SurveyFlowPage({
+    super.key,
+    required this.session,
+    required this.onRequireLogin,
+  });
 
   final AuthSession session;
+  final VoidCallback onRequireLogin;
 
   @override
   State<SurveyFlowPage> createState() => _SurveyFlowPageState();
@@ -30,7 +35,6 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
   final ImagePicker _imagePicker = ImagePicker();
   late final SurveyRepository _surveyRepository;
   late final SubmissionRepository _submissionRepository;
-  late final EncryptionService _encryptionService;
 
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, String?> _choiceAnswers = {};
@@ -57,7 +61,6 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
       authToken: widget.session.accessToken,
       simulateNetwork: false,
     );
-    _encryptionService = EncryptionService();
     _ensureCameraPermission();
   }
 
@@ -92,6 +95,22 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
     }
     _controllers.clear();
     _choiceAnswers.clear();
+  }
+
+  void _clearControllersWithDeferredDispose() {
+    if (_controllers.isEmpty) {
+      _choiceAnswers.clear();
+      return;
+    }
+    final Map<String, TextEditingController> oldControllers =
+        Map<String, TextEditingController>.from(_controllers);
+    _controllers.clear();
+    _choiceAnswers.clear();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final TextEditingController controller in oldControllers.values) {
+        controller.dispose();
+      }
+    });
   }
 
   TextEditingController _controllerFor(String questionId) {
@@ -169,7 +188,7 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
           if (!mounted) {
             return;
           }
-          _disposeControllers();
+          _clearControllersWithDeferredDispose();
           setState(() {
             _survey = survey;
             _scannedSurveyId = surveyId;
@@ -177,6 +196,12 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
           });
         })
         .catchError((Object error) {
+          if (error is SurveyException && error.statusCode == 502) {
+            if (mounted) {
+              widget.onRequireLogin();
+            }
+            return;
+          }
           if (!mounted) {
             return;
           }
@@ -196,31 +221,10 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
   }
 
   Future<void> _promptManualSurvey() async {
-    final TextEditingController controller = TextEditingController();
     final String? value = await showDialog<String>(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Saisir un surveyId'),
-          content: TextField(
-            controller: controller,
-            decoration: const InputDecoration(hintText: 'ex: survey-123'),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Annuler'),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(context).pop(controller.text.trim()),
-              child: const Text('Valider'),
-            ),
-          ],
-        );
-      },
+      builder: (BuildContext context) => const _ManualSurveyDialog(),
     );
-    controller.dispose();
     if (value != null && value.isNotEmpty) {
       _fetchSurvey(value);
     }
@@ -278,37 +282,62 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
       final List<SurveyAnswer> answers = _survey!.questions.map((
         SurveyQuestion q,
       ) {
-        final String response = q.type == QuestionType.singleChoice
-            ? _choiceAnswers[q.id] ?? ''
-            : _controllers[q.id]?.text ?? '';
-        return SurveyAnswer(questionId: q.id, response: response);
+        Object? answer;
+        if (q.type == QuestionType.singleChoice) {
+          final String positive = q.options.isNotEmpty
+              ? q.options.first
+              : 'Pouce en l\'air';
+          final String negative =
+              q.options.length > 1 ? q.options.last : 'Pouce en bas';
+          final String? selected = _choiceAnswers[q.id];
+          if (selected == positive) {
+            answer = true;
+          } else if (selected == negative) {
+            answer = false;
+          } else {
+            answer = null;
+          }
+        } else {
+          answer = _controllers[q.id]?.text ?? '';
+        }
+        final Object id = int.tryParse(q.id) ?? q.id;
+        return SurveyAnswer(id: id, content: q.label, answer: answer);
       }).toList();
-      final Map<String, dynamic> payload = <String, dynamic>{
-        'answers': answers.map((SurveyAnswer a) => a.toJson()).toList(),
-        'submittedAt': DateTime.now().toIso8601String(),
-      };
+      final List<Map<String, dynamic>> payload =
+          answers.map((SurveyAnswer a) => a.toJson()).toList();
 
-      final EncryptionBundle bundle = await _encryptionService
-          .encryptSubmission(answers: payload, photoBytes: _photoBytes);
+      // Encryption kept for later (will be re-enabled when backend expects it).
+      // final EncryptionBundle bundle = await _encryptionService
+      //     .encryptSubmission(answers: payload, photoBytes: _photoBytes);
+      //
+      // final EncryptedSubmission submission = EncryptedSubmission(
+      //   surveyId: _survey!.id,
+      //   answers: bundle.answers,
+      //   photo: bundle.photo,
+      //   encryptionKey: bundle.base64Key,
+      //   authToken: widget.session.accessToken,
+      // );
 
-      final EncryptedSubmission submission = EncryptedSubmission(
-        surveyId: _survey!.id,
-        answers: bundle.answers,
-        photo: bundle.photo,
-        encryptionKey: bundle.base64Key,
-        authToken: widget.session.accessToken,
+      await _submissionRepository.submit(
+        payload,
+        authTokenOverride: widget.session.accessToken,
       );
-
-      await _submissionRepository.submit(submission);
 
       if (!mounted) {
         return;
       }
       setState(() {
-        _lastBundle = bundle;
-        _statusMessage = 'Données chiffrées et envoyées via HTTPS (simulé).';
+        // _lastBundle = bundle;
+        _statusMessage = 'Réponses envoyées via HTTPS.';
       });
+      _resetSurvey();
     } on SubmissionException catch (error) {
+      if (error.statusCode == 502) {
+        if (mounted) {
+          widget.onRequireLogin();
+        }
+        return;
+      }
       setState(() {
         _statusMessage = error.message;
       });
@@ -326,7 +355,7 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
   }
 
   void _resetSurvey() {
-    _disposeControllers();
+    _clearControllersWithDeferredDispose();
     setState(() {
       _survey = null;
       _scannedSurveyId = null;
@@ -336,5 +365,43 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
       _statusMessage = null;
     });
     _scannerController.start();
+  }
+}
+
+class _ManualSurveyDialog extends StatefulWidget {
+  const _ManualSurveyDialog();
+
+  @override
+  State<_ManualSurveyDialog> createState() => _ManualSurveyDialogState();
+}
+
+class _ManualSurveyDialogState extends State<_ManualSurveyDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Saisir un surveyId'),
+      content: TextField(
+        controller: _controller,
+        decoration: const InputDecoration(hintText: 'ex: survey-123'),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annuler'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('Valider'),
+        ),
+      ],
+    );
   }
 }

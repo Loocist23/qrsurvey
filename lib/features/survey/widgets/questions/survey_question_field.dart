@@ -22,50 +22,20 @@ class SurveyQuestionField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    switch (question.type) {
-      case QuestionType.singleChoice:
-        final String positive =
-            question.options.isNotEmpty ? question.options.first : 'Pouce en l\'air';
-        final String negative = question.options.length > 1
-            ? question.options.last
-            : 'Pouce en bas';
-        return Padding(
-          key: ValueKey<String>('question-${question.id}'),
-          padding: const EdgeInsets.only(bottom: 12),
-          child: BinaryChoiceField(
-            label: question.label,
-            positiveLabel: positive,
-            negativeLabel: negative,
-            isRequired: question.required ?? false,
-            value: choiceAnswers[question.id],
-            onChanged: (String? value) => onChoiceChanged(question.id, value),
-          ),
-        );
-      case QuestionType.number:
-      case QuestionType.text:
-        final TextEditingController controller =
-            controllerResolver(question.id);
-        return Padding(
-          key: ValueKey<String>('question-${question.id}'),
-          padding: const EdgeInsets.only(bottom: 12),
-          child: TextFormField(
-            controller: controller,
-            decoration: InputDecoration(
-              labelText: question.label,
-              hintText: question.placeholder,
-            ),
-            keyboardType: question.type == QuestionType.number
-                ? TextInputType.number
-                : TextInputType.text,
-            validator: (String? value) {
-              if ((question.required ?? false) &&
-                  (value == null || value.isEmpty)) {
-                return 'Champ requis';
-              }
-              return null;
-            },
-          ),
-        );
-    }
+    const String positive = 'Pouce en l\'air';
+    const String negative = 'Pouce en bas';
+    return Padding(
+      key: ValueKey<String>('question-${question.id}'),
+      padding: const EdgeInsets.only(bottom: 12),
+      child: BinaryChoiceField(
+        label: question.label,
+        positiveLabel: positive,
+        negativeLabel: negative,
+        isRequired: question.required ?? false,
+        value: choiceAnswers[question.id],
+        showLabels: true,
+        onChanged: (String? value) => onChoiceChanged(question.id, value),
+      ),
+    );
   }
 }

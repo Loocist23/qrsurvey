@@ -1,11 +1,17 @@
 class SurveyAnswer {
-  const SurveyAnswer({required this.questionId, required this.response});
+  const SurveyAnswer({
+    required this.id,
+    required this.content,
+    required this.answer,
+  });
 
-  final String questionId;
-  final String response;
+  final Object id;
+  final String content;
+  final Object? answer;
 
   Map<String, dynamic> toJson() => {
-        'questionId': questionId,
-        'response': response,
+        'id': id,
+        'content': content,
+        'answer': answer,
       };
 }

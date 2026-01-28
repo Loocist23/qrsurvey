@@ -26,7 +26,7 @@ class EncryptionService {
   Future<SecretKey> _generateKey() => _algorithm.newSecretKey();
 
   Future<EncryptionBundle> encryptSubmission({
-    required Map<String, dynamic> answers,
+    required Object answers,
     Uint8List? photoBytes,
   }) async {
     final SecretKey secretKey = await _generateKey();
@@ -66,7 +66,7 @@ class EncryptionService {
     );
   }
 
-  Uint8List _encodeJson(Map<String, dynamic> json) {
+  Uint8List _encodeJson(Object json) {
     return Uint8List.fromList(utf8.encode(jsonEncode(json)));
   }
 }

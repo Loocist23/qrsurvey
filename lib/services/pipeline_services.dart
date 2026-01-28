@@ -97,13 +97,14 @@ class SurveyRepository {
     final Uri uri = Uri.parse(
       '${_trimTrailingSlash(baseUrl!)}/${_trimLeadingSlash(questionPath)}/$surveyId',
     );
-    final http.Response response = await _client.get(
+    final http.Response response = await _client.post(
       uri,
       headers: _authHeaders(token: authToken),
     );
     if (response.statusCode != 200) {
       throw SurveyException(
         'Impossible de récupérer le sondage (${response.statusCode}).',
+        statusCode: response.statusCode,
       );
     }
     final dynamic payload = jsonDecode(response.body);
@@ -129,7 +130,10 @@ class SubmissionRepository {
   final bool simulateNetwork;
   final String answersPath;
 
-  Future<void> submit(EncryptedSubmission submission) async {
+  Future<void> submit(
+    Object payload, {
+    String? authTokenOverride,
+  }) async {
     if (simulateNetwork || baseUrl == null) {
       await Future<void>.delayed(const Duration(seconds: 1));
       return;
@@ -142,14 +146,15 @@ class SubmissionRepository {
       uri,
       headers: <String, String>{
         'Content-Type': 'application/json',
-        ..._authHeaders(token: authToken ?? submission.authToken),
+        ..._authHeaders(token: authTokenOverride ?? authToken),
       },
-      body: jsonEncode(submission.toJson()),
+      body: jsonEncode(payload),
     );
 
     if (response.statusCode >= 400) {
       throw SubmissionException(
         'Erreur ${response.statusCode} pendant la soumission.',
+        statusCode: response.statusCode,
       );
     }
   }
@@ -176,7 +181,8 @@ Survey _surveyFromQuestionList(String surveyId, List<dynamic> raw) {
         return SurveyQuestion(
           id: id,
           label: label,
-          type: QuestionType.text,
+          type: QuestionType.singleChoice,
+          options: const ['Pouce en l\'air', 'Pouce en bas'],
         );
       })
       .toList();
@@ -193,8 +199,9 @@ Survey _surveyFromQuestionList(String surveyId, List<dynamic> raw) {
 }
 
 class SurveyException implements Exception {
-  SurveyException(this.message);
+  SurveyException(this.message, {this.statusCode});
   final String message;
+  final int? statusCode;
 
   @override
   String toString() => message;
@@ -209,8 +216,9 @@ class AuthException implements Exception {
 }
 
 class SubmissionException implements Exception {
-  SubmissionException(this.message);
+  SubmissionException(this.message, {this.statusCode});
   final String message;
+  final int? statusCode;
 
   @override
   String toString() => message;

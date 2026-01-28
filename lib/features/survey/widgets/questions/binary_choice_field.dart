@@ -9,6 +9,7 @@ class BinaryChoiceField extends StatelessWidget {
     required this.isRequired,
     required this.value,
     required this.onChanged,
+    this.showLabels = true,
   });
 
   final String label;
@@ -17,6 +18,7 @@ class BinaryChoiceField extends StatelessWidget {
   final bool isRequired;
   final String? value;
   final ValueChanged<String?> onChanged;
+  final bool showLabels;
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +49,7 @@ class BinaryChoiceField extends StatelessWidget {
                 _ThumbButton(
                   icon: Icons.thumb_up,
                   label: positiveLabel,
+                  showLabel: showLabels,
                   selected: currentValue == positiveLabel,
                   onPressed: () => handleTap(positiveLabel),
                 ),
@@ -54,6 +57,7 @@ class BinaryChoiceField extends StatelessWidget {
                 _ThumbButton(
                   icon: Icons.thumb_down,
                   label: negativeLabel,
+                  showLabel: showLabels,
                   selected: currentValue == negativeLabel,
                   onPressed: () => handleTap(negativeLabel),
                 ),
@@ -83,12 +87,14 @@ class _ThumbButton extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onPressed,
+    required this.showLabel,
   });
 
   final IconData icon;
   final String label;
   final bool selected;
   final VoidCallback onPressed;
+  final bool showLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -99,10 +105,18 @@ class _ThumbButton extends StatelessWidget {
         selected ? scheme.onPrimary : scheme.onSurfaceVariant;
 
     return Expanded(
-      child: OutlinedButton.icon(
+      child: OutlinedButton(
         onPressed: onPressed,
-        icon: Icon(icon),
-        label: Text(label, textAlign: TextAlign.center),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 28),
+            if (showLabel) ...[
+              const SizedBox(height: 6),
+              Text(label, textAlign: TextAlign.center),
+            ],
+          ],
+        ),
         style: OutlinedButton.styleFrom(
           backgroundColor: backgroundColor,
           foregroundColor: foregroundColor,
