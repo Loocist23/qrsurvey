@@ -8,7 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:qrcodequizz/app.dart';
+import 'package:abdelscanner/app.dart';
 
 void main() {
   testWidgets('Shows header and loading spinner on launch', (

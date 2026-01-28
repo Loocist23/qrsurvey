@@ -1,4 +1,4 @@
-# QRCodeQuizz
+# Abdelscanner
 
 Prototype Flutter app that demonstrates the full capture pipeline described earlier:
 

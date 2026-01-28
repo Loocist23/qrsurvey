@@ -1,6 +1,6 @@
 {
-    "name": "qrcodequizz",
-    "short_name": "qrcodequizz",
+    "name": "abdelscanner",
+    "short_name": "abdelscanner",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

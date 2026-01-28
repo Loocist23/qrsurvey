@@ -1,4 +1,4 @@
-# Architecture & logique de QRCodeQuizz
+# Architecture & logique de Abdelscanner
 
 ## Aperçu
 - Application Flutter (`lib/main.dart`) qui démontre un pipeline complet depuis le scan d’un QR code jusqu’à la soumission chiffrée d’un sondage.

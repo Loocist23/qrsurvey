@@ -7,12 +7,16 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../../models/survey_models.dart';
 import '../../../services/encryption_service.dart';
+import '../../../models/auth_session.dart';
+import '../../../services/api_config.dart';
 import '../../../services/pipeline_services.dart';
 import '../widgets/survey_form_view.dart';
 import '../widgets/survey_scanner_view.dart';
 
 class SurveyFlowPage extends StatefulWidget {
-  const SurveyFlowPage({super.key});
+  const SurveyFlowPage({super.key, required this.session});
+
+  final AuthSession session;
 
   @override
   State<SurveyFlowPage> createState() => _SurveyFlowPageState();
@@ -24,15 +28,13 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
     formats: const [BarcodeFormat.qrCode],
   );
   final ImagePicker _imagePicker = ImagePicker();
-  final SurveyRepository _surveyRepository = SurveyRepository();
-  final AuthRepository _authRepository = AuthRepository();
-  final SubmissionRepository _submissionRepository = SubmissionRepository();
-  final EncryptionService _encryptionService = EncryptionService();
+  late final SurveyRepository _surveyRepository;
+  late final SubmissionRepository _submissionRepository;
+  late final EncryptionService _encryptionService;
 
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, String?> _choiceAnswers = {};
 
-  String? _authToken;
   String? _statusMessage;
   Survey? _survey;
   String? _scannedSurveyId;
@@ -45,18 +47,18 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
   @override
   void initState() {
     super.initState();
-    _initialize();
-  }
-
-  Future<void> _initialize() async {
-    await _ensureCameraPermission();
-    final String token = await _authRepository.login();
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _authToken = token;
-    });
+    _surveyRepository = SurveyRepository(
+      baseUrl: ApiConfig.baseUrl,
+      authToken: widget.session.accessToken,
+      simulateFetch: false,
+    );
+    _submissionRepository = SubmissionRepository(
+      baseUrl: ApiConfig.baseUrl,
+      authToken: widget.session.accessToken,
+      simulateNetwork: false,
+    );
+    _encryptionService = EncryptionService();
+    _ensureCameraPermission();
   }
 
   Future<void> _ensureCameraPermission() async {
@@ -122,31 +124,29 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: _authToken == null
-              ? const Center(child: CircularProgressIndicator())
-              : _survey == null
-                  ? SurveyScannerView(
-                      controller: _scannerController,
-                      isFetchingSurvey: _isFetchingSurvey,
-                      statusMessage: _statusMessage,
-                      onManualEntry: _promptManualSurvey,
-                      onSurveyDetected: _handleSurveyDetected,
-                    )
-                  : SurveyFormView(
-                      formKey: _formKey,
-                      survey: _survey!,
-                      scannedSurveyId: _scannedSurveyId,
-                      controllerFor: _controllerFor,
-                      choiceAnswers: _choiceAnswers,
-                      onChoiceChanged: _setChoiceAnswer,
-                      photo: _photo,
-                      photoBytes: _photoBytes,
-                      onCapturePhoto: _capturePhoto,
-                      lastBundle: _lastBundle,
-                      statusMessage: _statusMessage,
-                      onSubmit: _submitForm,
-                      isSubmitting: _isSubmitting,
-                    ),
+          child: _survey == null
+              ? SurveyScannerView(
+                  controller: _scannerController,
+                  isFetchingSurvey: _isFetchingSurvey,
+                  statusMessage: _statusMessage,
+                  onManualEntry: _promptManualSurvey,
+                  onSurveyDetected: _handleSurveyDetected,
+                )
+              : SurveyFormView(
+                  formKey: _formKey,
+                  survey: _survey!,
+                  scannedSurveyId: _scannedSurveyId,
+                  controllerFor: _controllerFor,
+                  choiceAnswers: _choiceAnswers,
+                  onChoiceChanged: _setChoiceAnswer,
+                  photo: _photo,
+                  photoBytes: _photoBytes,
+                  onCapturePhoto: _capturePhoto,
+                  lastBundle: _lastBundle,
+                  statusMessage: _statusMessage,
+                  onSubmit: _submitForm,
+                  isSubmitting: _isSubmitting,
+                ),
         ),
       ),
     );
@@ -259,9 +259,9 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
   }
 
   Future<void> _submitForm() async {
-    if (_survey == null || _authToken == null) {
+    if (_survey == null) {
       setState(() {
-        _statusMessage = 'Authentification ou sondage manquant.';
+        _statusMessage = 'Sondage manquant.';
       });
       return;
     }
@@ -296,7 +296,7 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
         answers: bundle.answers,
         photo: bundle.photo,
         encryptionKey: bundle.base64Key,
-        authToken: _authToken!,
+        authToken: widget.session.accessToken,
       );
 
       await _submissionRepository.submit(submission);

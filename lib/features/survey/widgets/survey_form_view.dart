@@ -52,7 +52,7 @@ class SurveyFormView extends StatelessWidget {
           Text(survey.description),
           const SizedBox(height: 12),
           Text(
-            'QR: ${scannedSurveyId ?? '-'}',
+            'Identifiant de question: ${scannedSurveyId ?? '-'}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 12),

@@ -1,4 +1,4 @@
-# Guide de modification de QRCodeQuizz
+# Guide de modification de Abdelscanner
 
 Ce document complète `docs/architecture.md` et répond précisément à « quel fichier modifier pour faire évoluer telle étape du parcours QR → sondage → chiffrement ? ». Chaque section cite les classes/méthodes à toucher et l’ordre exact des actions.
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'features/survey/pages/survey_flow_page.dart';
+import 'features/auth/pages/auth_gate.dart';
 
 class SurveyApp extends StatelessWidget {
   const SurveyApp({super.key});
@@ -13,7 +13,7 @@ class SurveyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueGrey),
         useMaterial3: true,
       ),
-      home: const SurveyFlowPage(),
+      home: const AuthGate(),
     );
   }
 }
