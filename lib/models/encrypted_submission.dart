@@ -5,21 +5,18 @@ class EncryptedSubmission {
     required this.surveyId,
     required this.answers,
     this.photo,
-    required this.encryptionKey,
     required this.authToken,
   });
 
   final String surveyId;
   final EncryptedField answers;
   final EncryptedField? photo;
-  final String encryptionKey;
   final String authToken;
 
   Map<String, dynamic> toJson() => {
         'surveyId': surveyId,
         'answers': answers.toJson(),
         if (photo != null) 'photo': photo!.toJson(),
-        'encryptionKey': encryptionKey,
         'authToken': authToken,
       };
 }

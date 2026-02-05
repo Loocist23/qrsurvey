@@ -316,7 +316,6 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
         surveyId: _survey!.id,
         answers: bundle.answers,
         photo: bundle.photo,
-        encryptionKey: bundle.base64Key,
         authToken: widget.session.accessToken,
       );
 
