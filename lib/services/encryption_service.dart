@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 
 import '../models/survey_models.dart';
+import 'api_config.dart';
 
 class EncryptionBundle {
   const EncryptionBundle({
@@ -18,12 +19,34 @@ class EncryptionBundle {
 }
 
 class EncryptionService {
-  EncryptionService({AesGcm? algorithm})
-    : _algorithm = algorithm ?? AesGcm.with256bits();
+  EncryptionService({AesGcm? algorithm, String? encryptionKey})
+    : _algorithm = algorithm ?? AesGcm.with256bits(),
+      _encryptionKey = encryptionKey ?? ApiConfig.encryptionKey;
 
   final AesGcm _algorithm;
+  final String _encryptionKey;
 
-  Future<SecretKey> _generateKey() => _algorithm.newSecretKey();
+  Future<SecretKey> _generateKey() async {
+    // Use the fixed key from configuration
+    final Uint8List keyBytes = Uint8List.fromList(utf8.encode(_encryptionKey));
+    // Ensure the key is the correct length for AES-256 (32 bytes)
+    final Uint8List paddedKey = _padKeyTo256Bits(keyBytes);
+    return SecretKey(paddedKey);
+  }
+
+  Uint8List _padKeyTo256Bits(Uint8List keyBytes) {
+    // AES-256 requires 32 bytes (256 bits)
+    final Uint8List paddedKey = Uint8List(32);
+    if (keyBytes.length >= 32) {
+      // If key is too long, use first 32 bytes
+      paddedKey.setRange(0, 32, keyBytes);
+    } else {
+      // If key is too short, pad with zeros
+      paddedKey.setRange(0, keyBytes.length, keyBytes);
+      paddedKey.fillRange(keyBytes.length, 32, 0);
+    }
+    return paddedKey;
+  }
 
   Future<EncryptionBundle> encryptSubmission({
     required Object answers,

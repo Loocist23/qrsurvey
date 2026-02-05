@@ -35,6 +35,7 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
   final ImagePicker _imagePicker = ImagePicker();
   late final SurveyRepository _surveyRepository;
   late final SubmissionRepository _submissionRepository;
+  late final EncryptionService _encryptionService;
 
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, String?> _choiceAnswers = {};
@@ -61,6 +62,7 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
       authToken: widget.session.accessToken,
       simulateNetwork: false,
     );
+    _encryptionService = EncryptionService();
     _ensureCameraPermission();
   }
 
@@ -291,9 +293,9 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
               q.options.length > 1 ? q.options.last : 'Pouce en bas';
           final String? selected = _choiceAnswers[q.id];
           if (selected == positive) {
-            answer = true;
+            answer = "true";
           } else if (selected == negative) {
-            answer = false;
+            answer = "false";
           } else {
             answer = null;
           }
@@ -306,20 +308,20 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
       final List<Map<String, dynamic>> payload =
           answers.map((SurveyAnswer a) => a.toJson()).toList();
 
-      // Encryption kept for later (will be re-enabled when backend expects it).
-      // final EncryptionBundle bundle = await _encryptionService
-      //     .encryptSubmission(answers: payload, photoBytes: _photoBytes);
-      //
-      // final EncryptedSubmission submission = EncryptedSubmission(
-      //   surveyId: _survey!.id,
-      //   answers: bundle.answers,
-      //   photo: bundle.photo,
-      //   encryptionKey: bundle.base64Key,
-      //   authToken: widget.session.accessToken,
-      // );
+      // Encrypt the submission with the fixed key
+      final EncryptionBundle bundle = await _encryptionService
+          .encryptSubmission(answers: payload, photoBytes: _photoBytes);
+
+      final EncryptedSubmission submission = EncryptedSubmission(
+        surveyId: _survey!.id,
+        answers: bundle.answers,
+        photo: bundle.photo,
+        encryptionKey: bundle.base64Key,
+        authToken: widget.session.accessToken,
+      );
 
       await _submissionRepository.submit(
-        payload,
+        submission.toJson(),
         authTokenOverride: widget.session.accessToken,
       );
 
@@ -327,8 +329,8 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
         return;
       }
       setState(() {
-        // _lastBundle = bundle;
-        _statusMessage = 'Réponses envoyées via HTTPS.';
+        _lastBundle = bundle;
+        _statusMessage = 'Réponses chiffrées et envoyées via HTTPS.';
       });
       _resetSurvey();
     } on SubmissionException catch (error) {
