@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -308,28 +309,54 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
       final List<Map<String, dynamic>> payload =
           answers.map((SurveyAnswer a) => a.toJson()).toList();
 
-      // Encrypt the submission with the fixed key
-      final EncryptionBundle bundle = await _encryptionService
-          .encryptSubmission(answers: payload, photoBytes: _photoBytes);
+      // Prepare the submission in the format expected by the API
+      final List<Map<String, String>> submissions = _survey!.questions.map((
+        SurveyQuestion q,
+      ) {
+        String response = '';
+        if (q.type == QuestionType.singleChoice) {
+          final String positive = q.options.isNotEmpty
+              ? q.options.first
+              : 'Pouce en l\'air';
+          final String negative =
+              q.options.length > 1 ? q.options.last : 'Pouce en bas';
+          final String? selected = _choiceAnswers[q.id];
+          if (selected == positive) {
+            response = "true";
+          } else if (selected == negative) {
+            response = "false";
+          }
+        } else {
+          response = _controllers[q.id]?.text ?? '';
+        }
+        return {
+          'surveyId': _survey!.id,
+          'question_id': q.id,
+          'response': response,
+        };
+      }).toList();
 
-      final EncryptedSubmission submission = EncryptedSubmission(
-        surveyId: _survey!.id,
-        answers: bundle.answers,
-        photo: bundle.photo,
-        authToken: widget.session.accessToken,
-      );
-
-      await _submissionRepository.submit(
-        submission.toJson(),
-        authTokenOverride: widget.session.accessToken,
-      );
+      // Send each submission separately
+      for (final submission in submissions) {
+        try {
+          await _submissionRepository.submit(
+            submission,
+            authTokenOverride: widget.session.accessToken,
+            photoBytes: _photoBytes,
+          );
+        } on SubmissionException catch (e) {
+          if (e.statusCode != 409) {
+            rethrow;
+          }
+          // Ignore 409 conflicts (response already submitted)
+        }
+      }
 
       if (!mounted) {
         return;
       }
       setState(() {
-        _lastBundle = bundle;
-        _statusMessage = 'Réponses chiffrées et envoyées via HTTPS.';
+        _statusMessage = 'Réponses envoyées via HTTPS.';
       });
       _resetSurvey();
     } on SubmissionException catch (error) {

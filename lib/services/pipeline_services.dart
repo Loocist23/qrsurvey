@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/auth_session.dart';
 import '../models/survey_models.dart';
 import 'api_config.dart';
+import 'http_client_utils.dart';
 
 class AuthRepository {
   AuthRepository({
@@ -14,7 +16,7 @@ class AuthRepository {
     this.baseUrl = ApiConfig.baseUrl,
     this.loginPath = ApiConfig.authLoginPath,
   }) : _storage = storage ?? const FlutterSecureStorage(),
-       _client = client ?? http.Client();
+       _client = client ?? createInsecureHttpClient();
 
   final FlutterSecureStorage _storage;
   final http.Client _client;
@@ -80,7 +82,7 @@ class SurveyRepository {
     this.authToken,
     this.simulateFetch = true,
     this.questionPath = ApiConfig.questionPath,
-  }) : _client = client ?? http.Client();
+  }) : _client = client ?? createInsecureHttpClient();
 
   final http.Client _client;
   final String? baseUrl;
@@ -122,7 +124,7 @@ class SubmissionRepository {
     this.authToken,
     this.simulateNetwork = true,
     this.answersPath = ApiConfig.answersPath,
-  }) : _client = client ?? http.Client();
+  }) : _client = client ?? createInsecureHttpClient();
 
   final http.Client _client;
   final String? baseUrl;
@@ -133,6 +135,7 @@ class SubmissionRepository {
   Future<void> submit(
     Object payload, {
     String? authTokenOverride,
+    Uint8List? photoBytes,
   }) async {
     if (simulateNetwork || baseUrl == null) {
       await Future<void>.delayed(const Duration(seconds: 1));
@@ -142,21 +145,43 @@ class SubmissionRepository {
     final Uri uri = Uri.parse(
       '${_trimTrailingSlash(baseUrl!)}/${_trimLeadingSlash(answersPath)}',
     );
-    final http.Response response = await _client.post(
-      uri,
-      headers: <String, String>{
-        'Content-Type': 'application/json',
-        ..._authHeaders(token: authTokenOverride ?? authToken),
-      },
-      body: jsonEncode(payload),
-    );
 
-    if (response.statusCode >= 400) {
-      throw SubmissionException(
-        'Erreur ${response.statusCode} pendant la soumission.',
-        statusCode: response.statusCode,
+    // Create a multipart request
+    final http.MultipartRequest request = http.MultipartRequest('POST', uri);
+    
+    // Add headers
+    request.headers.addAll(_authHeaders(token: authTokenOverride ?? authToken));
+    
+    // Add fields from payload
+    if (payload is Map<String, dynamic>) {
+      for (final entry in payload.entries) {
+        request.fields[entry.key] = entry.value.toString();
+      }
+    }
+    
+    // Add photo if provided
+    if (photoBytes != null) {
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'image',
+          photoBytes,
+          filename: 'photo.jpg',
+        ),
       );
     }
+
+    // Send the request using the configured client
+    final http.StreamedResponse response = await _client.send(request);
+    final int statusCode = response.statusCode;
+    await response.stream.bytesToString(); // Drain the response
+
+    if (statusCode >= 400 && statusCode != 409) {
+      throw SubmissionException(
+        'Erreur $statusCode pendant la soumission.',
+        statusCode: statusCode,
+      );
+    }
+    // Ignore 409 conflicts (response already submitted)
   }
 }
 
