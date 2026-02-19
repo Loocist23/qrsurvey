@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -36,7 +35,7 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
   final ImagePicker _imagePicker = ImagePicker();
   late final SurveyRepository _surveyRepository;
   late final SubmissionRepository _submissionRepository;
-  late final EncryptionService _encryptionService;
+  // late final EncryptionService _encryptionService;
 
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, String?> _choiceAnswers = {};
@@ -49,6 +48,7 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
   EncryptionBundle? _lastBundle;
   bool _isFetchingSurvey = false;
   bool _isSubmitting = false;
+  bool _isBlocked = false;
 
   @override
   void initState() {
@@ -63,7 +63,7 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
       authToken: widget.session.accessToken,
       simulateNetwork: false,
     );
-    _encryptionService = EncryptionService();
+    // _encryptionService = EncryptionService();
     _ensureCameraPermission();
   }
 
@@ -143,34 +143,65 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
             ),
         ],
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: _survey == null
-              ? SurveyScannerView(
-                  controller: _scannerController,
-                  isFetchingSurvey: _isFetchingSurvey,
-                  statusMessage: _statusMessage,
-                  onManualEntry: _promptManualSurvey,
-                  onSurveyDetected: _handleSurveyDetected,
-                )
-              : SurveyFormView(
-                  formKey: _formKey,
-                  survey: _survey!,
-                  scannedSurveyId: _scannedSurveyId,
-                  controllerFor: _controllerFor,
-                  choiceAnswers: _choiceAnswers,
-                  onChoiceChanged: _setChoiceAnswer,
-                  photo: _photo,
-                  photoBytes: _photoBytes,
-                  onCapturePhoto: _capturePhoto,
-                  lastBundle: _lastBundle,
-                  statusMessage: _statusMessage,
-                  onSubmit: _submitForm,
-                  isSubmitting: _isSubmitting,
+      body: _isBlocked
+          ? Stack(
+              children: [
+                Container(
+                  color: Colors.black.withOpacity(0.7),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Image.asset('assets/iu_.png', height: 200),
+                        const SizedBox(height: 20),
+                        const Text(
+                          'Application bloquée pour des raisons de sécurité',
+                          style: TextStyle(color: Colors.white, fontSize: 20),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Veuillez patienter 30 secondes',
+                          style: TextStyle(color: Colors.white70, fontSize: 16),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-        ),
-      ),
+                Container(
+                  color: Colors.black.withOpacity(0.3),
+                ),
+              ],
+            )
+          : SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: _survey == null
+                    ? SurveyScannerView(
+                        controller: _scannerController,
+                        isFetchingSurvey: _isFetchingSurvey,
+                        statusMessage: _statusMessage,
+                        onManualEntry: _promptManualSurvey,
+                        onSurveyDetected: _handleSurveyDetected,
+                      )
+                    : SurveyFormView(
+                        formKey: _formKey,
+                        survey: _survey!,
+                        scannedSurveyId: _scannedSurveyId,
+                        controllerFor: _controllerFor,
+                        choiceAnswers: _choiceAnswers,
+                        onChoiceChanged: _setChoiceAnswer,
+                        photo: _photo,
+                        photoBytes: _photoBytes,
+                        onCapturePhoto: _capturePhoto,
+                        lastBundle: _lastBundle,
+                        statusMessage: _statusMessage,
+                        onSubmit: _submitForm,
+                        isSubmitting: _isSubmitting,
+                      ),
+              ),
+            ),
     );
   }
 
@@ -179,48 +210,54 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
     _fetchSurvey(rawValue);
   }
 
-  void _fetchSurvey(String surveyId) {
+  Future<void> _fetchSurvey(String surveyId) async {
     setState(() {
       _isFetchingSurvey = true;
       _statusMessage = 'Chargement du sondage $surveyId…';
     });
 
-    _surveyRepository
-        .fetchSurvey(surveyId)
-        .then((Survey survey) {
-          if (!mounted) {
-            return;
-          }
-          _clearControllersWithDeferredDispose();
-          setState(() {
-            _survey = survey;
-            _scannedSurveyId = surveyId;
-            _statusMessage = null;
-          });
-        })
-        .catchError((Object error) {
-          if (error is SurveyException && error.statusCode == 502) {
-            if (mounted) {
-              widget.onRequireLogin();
-            }
-            return;
-          }
-          if (!mounted) {
-            return;
-          }
+    try {
+      final Survey survey = await _surveyRepository.fetchSurvey(surveyId);
+      
+      // Check for Abdel question ID immediately after loading
+      for (final q in survey.questions) {
+        if (q.id.toLowerCase() == 'abdel') {
+          await _showAbdelAnimation();
           _scannerController.start();
-          setState(() {
-            _statusMessage = 'Erreur: $error';
-          });
-        })
-        .whenComplete(() {
-          if (!mounted) {
-            return;
-          }
-          setState(() {
-            _isFetchingSurvey = false;
-          });
+          return;
+        }
+      }
+      
+      if (!mounted) {
+        return;
+      }
+      _clearControllersWithDeferredDispose();
+      setState(() {
+        _survey = survey;
+        _scannedSurveyId = surveyId;
+        _statusMessage = null;
+      });
+    } catch (error) {
+      if (error is SurveyException && error.statusCode == 502) {
+        if (mounted) {
+          widget.onRequireLogin();
+        }
+        return;
+      }
+      if (!mounted) {
+        return;
+      }
+      _scannerController.start();
+      setState(() {
+        _statusMessage = 'Erreur: $error';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isFetchingSurvey = false;
         });
+      }
+    }
   }
 
   Future<void> _promptManualSurvey() async {
@@ -306,8 +343,8 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
         final Object id = int.tryParse(q.id) ?? q.id;
         return SurveyAnswer(id: id, content: q.label, answer: answer);
       }).toList();
-      final List<Map<String, dynamic>> payload =
-          answers.map((SurveyAnswer a) => a.toJson()).toList();
+      // Prepare answers (unused payload variable removed)
+      answers.map((SurveyAnswer a) => a.toJson()).toList();
 
       // Prepare the submission in the format expected by the API
       final List<Map<String, String>> submissions = _survey!.questions.map((
@@ -358,6 +395,7 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
       setState(() {
         _statusMessage = 'Réponses envoyées via HTTPS.';
       });
+      _showSubmissionResultPopup(200, 'Réponse prise en compte');
       _resetSurvey();
     } on SubmissionException catch (error) {
       if (error.statusCode == 502) {
@@ -369,10 +407,16 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
       setState(() {
         _statusMessage = error.message;
       });
+      if (error.statusCode == 709) {
+        _showSubmissionResultPopup(709, 'Vous avez déjà répondu');
+      } else {
+        _showSubmissionResultPopup(error.statusCode, error.message);
+      }
     } on Exception catch (error) {
       setState(() {
         _statusMessage = 'Erreur inattendue: $error';
       });
+      _showSubmissionResultPopup(null, 'Erreur inattendue: $error');
     } finally {
       if (mounted) {
         setState(() {
@@ -393,6 +437,88 @@ class _SurveyFlowPageState extends State<SurveyFlowPage> {
       _statusMessage = null;
     });
     _scannerController.start();
+  }
+
+  Future<void> _showSubmissionResultPopup(int? statusCode, String message) async {
+    Color backgroundColor;
+    String title;
+    
+    if (statusCode == 200) {
+      backgroundColor = Colors.green[100]!;
+      title = 'Succès';
+    } else if (statusCode == 709) {
+      backgroundColor = Colors.orange[100]!;
+      title = 'Information';
+    } else {
+      backgroundColor = Colors.red[100]!;
+      title = 'Erreur';
+    }
+    
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(
+            title,
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(fontSize: 18),
+          ),
+          backgroundColor: backgroundColor,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK', style: TextStyle(fontSize: 16)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showAbdelAnimation() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.9),
+      builder: (BuildContext context) {
+        return WillPopScope(
+          onWillPop: () async => false,
+          child: Center(
+            child: AnimatedOpacity(
+              opacity: 1.0,
+              duration: const Duration(seconds: 15),
+              curve: Curves.easeIn,
+              child: Image.asset(
+                'assets/iu_.png',
+                width: 300,
+                height: 300,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    
+    await Future.delayed(const Duration(seconds: 15));
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _showBlockScreen() async {
+    setState(() {
+      _isBlocked = true;
+    });
+    await Future.delayed(const Duration(seconds: 30));
+    if (mounted) {
+      setState(() {
+        _isBlocked = false;
+      });
+    }
   }
 }
 
